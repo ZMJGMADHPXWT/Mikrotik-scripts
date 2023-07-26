@@ -1,0 +1,93 @@
+#============================SCRIPT INFORMATION============================
+#
+# Purpose:  This script was made to get an info about NAND free space and send alerts
+# Script's name: free_space_monitor.src
+# Version: 0.2
+# Created: 25/07/2023
+# Updated: 26/07/2023
+# Author:  ZMJGMADHPXWT
+# Website: https://github.com/ZMJGMADHPXWT
+#
+# Tested on ROS 7.10
+#
+#==========================================================================
+#
+#vvvvvvvvvvvvvvvvvvvvvvvvDESCRIPTION AND CONFIGURATIONvvvvvvvvvvvvvvvvvvvvv
+#This script was made to get an info about NAND free space (/system/resource get free-hdd-space) 
+#on Mikrotik ROS v7 and send alerts via email and Telegram when free space is lower than specified threshold.
+#The main problem is in the fact that some MT routers have too small NAND partition. 
+#For example a HEX Router (GR3) with 7.10 ROS firmware has only 2000KB of free space. Is case you use address-lists/DNS/etc heavily, 
+#this amount of KB will be filled quite fast. Even if you have 200KB free, it could be filled completely during attempts to clean 
+#address-lists/DNS/etc manually.
+#And in a result there will be 0B free space and ROS will switch to read-only mode. It will work further, but you will not be able to 
+#reconfigure, delete something or fix this issue easily.
+#So there is only one possible way to fix this issue - NetInstall.
+#After getting in this trouble, I decided to create this script to be able to monitor NAND free space and avoid such issues in a future.
+#
+#You have to add a task to scheduler using command
+#/system scheduler add interval=1h name=free_space_monitor on-event=free_space_monitor policy=read,write,policy,test start-date=2023-07-25 start-time=13:41:1 
+#
+#Here is the description of variables
+#
+#local threshold 400                           
+#The threshold in KB. If free space drops lower, than alerts will trigger. It should NOT be lower than 200KB!
+#
+#The name of a task in scheduler: 
+#local schedulename "free_space_monitor"
+#
+#Your email address and SMTP server:
+#local emailAddress "my_mt_alerts@gmail.com"
+#local smtpServer "smtp.gmail.com"
+#
+#Your Teegram BotToken and ChatID to sent alert:
+#local BotToken "AAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+#local ChatID "-111111111"
+#
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
+#vvvvvvvvvvvvvvvvvvvVARIABLES. MODIFY THIS SECTION AS NEEDEDvvvvvvvvvvvvvvv
+#
+:local threshold 600;
+
+:local schedulename "free_space_monitor";
+
+:local emailAddress "my_mt_alerts@gmail.com";
+:local smtpServer "smtp.gmail.com";
+
+:local BotToken "AAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+:local ChatID "-111111111";
+#
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
+#vvvvvvvvvvvvvvvvvvvvvvvvvOTHER VARIABLESvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+#
+:local freespace ([/system/resource get free-hdd-space]/1024);
+:local currdate ([/system/clock/get date]); 
+:local currtime ([/system/clock/get time]);
+:local currdatetime ($currdate . " " . $currtime);
+
+:local emailsubject "$currdatetime Mikrotik $[/system identity get name] NAND free space is CRITICALLY LOW";
+:local alerttext "$currdatetime Mikrotik $[/system identity get name] NAND free space is CRITICALLY LOW! Only $freespace KB left! You have to clean NAND space immediately!!!";
+#
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#
+
+# check and warn if schedule does not exist. Stop script with error.
+:if (([:len [/system scheduler find name=$schedulename]]) > 0) do={
+  /log error ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Script free_space-monitor: Schedule does not exist. Create schedule and edit script to match name";
+  :error ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Script free_space-monitor: Schedule does not exist. Create schedule and edit script to match name";
+}
+
+
+# if freespace less than $threshold value. log +alerts
+:if ($freespace <= $threshold) do={
+  /log error ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Script free_space-monitor: NAND free space is CRITICAL. $freespace KB. You have to clean space immediately!!!";
+  /tool e-mail send to="$emailAddress" tls=yes subject="$emailsubject" body="$alerttext"  server=[:resolve $smtpServer]
+  /tool fetch keep-result=no url="https://api.telegram.org/bot$BotToken/sendMessage?chat_id=$ChatID&text=$alerttext";
+} else={ 
+  # if freespace more than $threshold value
+  /log info ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Script free_space-monitor: NAND free space is OK. $freespace KB."; 
+};
+#====================================END===================================

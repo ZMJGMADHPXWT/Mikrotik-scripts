@@ -1,0 +1,104 @@
+#============================SCRIPT INFORMATION============================
+#
+# Purpose:  This script was made to protect L2TP server from brutforce attacks.
+# Script's name: "l2tp_protector5.src"
+# Version: 0.2
+# Created: 26/01/2018
+# Updated: 26/07/2023
+# Author:  ZMJGMADHPXWT
+# Website: https://github.com/ZMJGMADHPXWT
+#
+# Tested on ROS 7.10
+#
+#==========================================================================
+#
+#vvvvvvvvvvvvvvvvvvvvvvvvDESCRIPTION AND CONFIGURATIONvvvvvvvvvvvvvvvvvvvvv
+#The first version of this scritp was made almost 5 years ago by me to protect my L2TP server on Mikrotik Router 
+#from brutforce attacks. Now it was rewrited to be able to work on ROS 7.
+#It constantly checking MT logs for "parsing packet failed, possible cause: wrong password"; string and adding IPs to black-list.
+#To use this script you need to add a firewall rules:
+#/ip firewall filter add action=drop chain=input comment="L2TP brutforce IP IPSec  drop" \
+#connection-state=new protocol=ipsec-esp src-address-list=l2tp-brutforce
+#/ip firewall filter add action=drop chain=input comment="L2TP brutforce IP drop" \
+#connection-state=new dst-port=1701,500,4500 protocol=udp src-address-list=l2tp-brutforce
+#
+#Also you have to add l2tp_protector5 schedule. And configure "threshold" variable.
+#Here is the description of variables
+#
+#local threshold 5                         
+#It means that after 5 attemts with "parsing packet failed, possible cause: wrong password"; errors, IP will be added to block-list.
+#
+#local prefix - this is a preferable name of your router for better understanding.
+#
+#The name of a task in scheduler: 
+#local schedulename "l2tp_protector5"
+#
+#Your email address and SMTP server:
+#local emailAddress "my_mt_alerts@gmail.com"
+#local smtpServer "smtp.gmail.com"
+#
+#Your Teegram BotToken and ChatID to sent alert:
+#local BotToken "AAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+#local ChatID "-111111111"
+#
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+#vvvvvvvvvvvvvvvvvvvVARIABLES. MODIFY THIS SECTION AS NEEDEDvvvvvvvvvvvvvvv
+#
+:local threshold 5
+:local prefix "hAP ac lite"
+
+:local schedulename "l2tp_protector5";
+
+:local emailAddress "my_mt_alerts@gmail.com";
+:local smtpServer "smtp.gmail.com";
+
+:local BotToken "AAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+:local ChatID "-111111111";
+#
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
+#vvvvvvvvvvvvvvvvvvvvvvvvvOTHER VARIABLESvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+#
+:local ipaddr;
+#searching for "parsing packet failed, possible cause: wrong password" string in log.
+:local l2tp [/log find message~"parsing packet failed, possible cause: wrong password"];  
+
+:local currdate ([/system/clock/get date]); 
+:local currtime ([/system/clock/get time]);
+:local currdatetime ($currdate . " " . $currtime);
+
+:local testvar1 ([/system scheduler find name=$schedulename]); 
+:local testvar2 [:len [/system scheduler find name=$schedulename]]; 
+#
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#
+# check and warn if schedule does not exist. Stop script with error.
+:if (([:len [/system scheduler find name=$schedulename]]) = 0) do={
+  /log error ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Script L2TP_protector_1: Schedule does not exist. Create schedule and edit script to match name";
+  :error ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Script L2TP_protector_1: Schedule does not exist. Create schedule and edit script to match name";
+}
+
+
+#walking through l2tp array
+foreach i in=$l2tp do={
+  #getting IP address of a remote host. trim string from MT journal
+  :set ipaddr [:pick [/log get $i message ] 0 ([:len [/log get $i message ]]-54)];
+    #execute if quantity of " parsing packet failed, possible cause: wrong password" records more than threshold variable for THIS IP address
+    if ([:len [/log find message~"$ipaddr parsing packet failed, possible cause: wrong password"]] >= $threshold) do={
+      #execute if IP address isn't in firewall adress-list
+      if ([:len [/ip firewall address-list find address=$ipaddr]] = 0 ) do={
+        #supplementation IP to address-list		
+        /ip firewall address-list add list=l2tp-brutforce address=[:toip $ipaddr];
+        :local emailsubject "$currdatetime Mikrotik $prefix $[/system identity get name] $ipaddr IP was added to L2TP black-list";
+        :local alerttext "$currdatetime Mikrotik $prefix $[/system identity get name] $ipaddr IP was added to L2TP black-list";
+        /log warning ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> Script L2TP_protector_5: $ipaddr IP was added to l2tp-brutforce address-list.";
+        /tool e-mail send to="$emailAddress" tls=yes subject="$emailsubject" body="$alerttext"  server=[:resolve $smtpServer]
+        /tool fetch keep-result=no url="https://api.telegram.org/bot$BotToken/sendMessage?chat_id=$ChatID&text=$alerttext";
+          }
+    }
+}
+#
+#====================================END===================================
+

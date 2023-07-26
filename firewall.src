@@ -1,0 +1,43 @@
+#============================SCRIPT INFORMATION============================
+#
+# Purpose:  Mikrotik L2TP protection
+# Script's name: firewall.src
+# Version: 0.2
+# Created: 26/01/2018
+# Updated: 26/07/2023
+# Author:  ZMJGMADHPXWT
+# Website: https://github.com/ZMJGMADHPXWT
+#
+# Tested on ROS 7.10
+#
+#==========================================================================
+#
+#vvvvvvvvvvvvvvvvvvvvvvvvDESCRIPTION AND CONFIGURATIONvvvvvvvvvvvvvvvvvvvvv
+#
+#This is the fist stage of L2TP server protection. It will help to block and avoid some connections.
+#To configure this script you fave to change ether1-WAN to your WAN insterface and put these rules to first place in your firewall. 
+#
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
+/ip firewall filter
+add action=drop chain=input comment="L2TP brutforce IP IPSec drop" connection-state=new protocol=ipsec-esp src-address-list=\
+    l2tp-brutforce
+add action=drop chain=input comment="L2TP brutforce IP drop" connection-state=new dst-port=1701,500,4500 protocol=udp src-address-list=\
+    l2tp-brutforce
+add action=add-src-to-address-list address-list=l2tp-brutforce address-list-timeout=2w chain=input comment="L2TP brutforce IP to list" \
+    connection-state=new dst-port=1701 protocol=udp src-address-list=probe2
+add action=add-src-to-address-list address-list=probe2 address-list-timeout=1m chain=input comment="L2TP brutforce protection stage 2" \
+    connection-state=new dst-port=1701 protocol=udp src-address-list=probe1
+add action=add-src-to-address-list address-list=probe1 address-list-timeout=1m chain=input comment="L2TP brutforce protection stage 1" \
+    connection-state=new dst-port=1701 protocol=udp
+add action=add-dst-to-address-list address-list=l2tp-brutforce address-list-timeout=1m chain=output comment="L2TP-brutforce protection stage 3 v2" \
+    content="M=bad" dst-address-list=l2tp-brutforce-level2
+add action=add-dst-to-address-list address-list=l2tp-brutforce-level2 address-list-timeout=1m chain=output comment=\
+    "L2TP-brutforce protection stage 2  v2" content="M=bad" dst-address-list=l2tp-brutforce-level1
+add action=add-dst-to-address-list address-list=l2tp-brutforce-level1 address-list-timeout=1m chain=output comment=\
+    "L2TP-brutforce protection stage 1  v2" content="M=bad"
+add action=accept chain=input comment="L2TP allow only with IPsec" dst-port=1701 in-interface=ether1-WAN ipsec-policy=in,ipsec protocol=udp
+add action=drop chain=input comment="Drop L2TP without IPsec" dst-port=1701 in-interface=ether1-WAN protocol=udp
+add action=accept chain=input comment="L2TP allow" dst-port=500,4500 in-interface=ether1-WAN protocol=udp
+add action=accept chain=input comment="IPSec enable" in-interface=ether1-WAN protocol=ipsec-esp
